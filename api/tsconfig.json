@@ -18,5 +18,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["./**/*.ts", "../server/identify.ts"]
+  "include": ["./**/*.ts", "../server/identify.ts", "../server/youtube.ts"]
 }

@@ -36,6 +36,8 @@ export function JacketScan() {
   const [scanError, setScanError] = useState<string | null>(null)
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [result, setResult] = useState<IdentifyResult | null>(null)
+  const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null)
+  const [youtubeLoading, setYoutubeLoading] = useState(false)
 
   useEffect(() => {
     if (step !== 'camera') return
@@ -98,9 +100,25 @@ export function JacketScan() {
       const data = (await res.json()) as IdentifyResult
       setResult(data)
       setStep('result')
+      if (data.recognized) void searchYoutube(data.artist, data.title)
     } catch {
       setScanError('解析に失敗しました。もう一度お試しください。')
       setStep('camera')
+    }
+  }
+
+  async function searchYoutube(artist: string, title: string) {
+    setYoutubeLoading(true)
+    setYoutubeVideoId(null)
+    try {
+      const res = await fetch(`/api/youtube-search?q=${encodeURIComponent(`${artist} ${title}`)}`)
+      if (!res.ok) throw new Error(`request failed: ${res.status}`)
+      const data = (await res.json()) as { videoId: string | null }
+      setYoutubeVideoId(data.videoId)
+    } catch {
+      setYoutubeVideoId(null)
+    } finally {
+      setYoutubeLoading(false)
     }
   }
 
@@ -109,6 +127,8 @@ export function JacketScan() {
     setPhotoUrl(null)
     setCameraError(null)
     setScanError(null)
+    setYoutubeVideoId(null)
+    setYoutubeLoading(false)
     setStep('camera')
   }
 
@@ -237,15 +257,36 @@ export function JacketScan() {
                     <Music2 className="size-4" />
                     Spotifyで検索
                   </a>
-                  <a
-                    href={`https://www.youtube.com/results?search_query=${query}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center justify-center gap-2 rounded-xl bg-red-500 py-3 text-sm font-semibold text-white"
-                  >
-                    <ExternalLink className="size-4" />
-                    YouTubeで検索
-                  </a>
+                  {youtubeLoading && (
+                    <div className="flex items-center justify-center gap-2 rounded-xl border border-white/10 py-3 text-xs text-white/40">
+                      <Loader2 className="size-3.5 animate-spin" />
+                      YouTubeを検索中...
+                    </div>
+                  )}
+
+                  {!youtubeLoading && youtubeVideoId && (
+                    <div className="overflow-hidden rounded-xl bg-black">
+                      <iframe
+                        src={`https://www.youtube.com/embed/${youtubeVideoId}`}
+                        title="YouTube video player"
+                        className="aspect-video w-full"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    </div>
+                  )}
+
+                  {!youtubeLoading && !youtubeVideoId && (
+                    <a
+                      href={`https://www.youtube.com/results?search_query=${query}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center justify-center gap-2 rounded-xl bg-red-500 py-3 text-sm font-semibold text-white"
+                    >
+                      <ExternalLink className="size-4" />
+                      YouTubeで検索
+                    </a>
+                  )}
                 </div>
               )}
 
