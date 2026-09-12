@@ -19,12 +19,15 @@ import type {
   Genre,
   RecordItem,
   RecommendedRecord,
+  ScanHistoryEntry,
   Sighting,
   UserProfile,
   WantItem,
 } from '../types'
 
 const STORAGE_KEY = 'dig-app-state-v1'
+
+const MAX_SCAN_HISTORY = 50
 
 interface PersistedState {
   collection: RecordItem[]
@@ -33,6 +36,7 @@ interface PersistedState {
   profile: UserProfile
   dnaMode: DnaMode
   claimedChallenges: string[]
+  scanHistory: ScanHistoryEntry[]
 }
 
 interface XpToast {
@@ -65,6 +69,7 @@ interface AppContextValue extends PersistedState {
   addDigLogEntry: (input: Omit<DigLogEntry, 'id'>) => void
   setDnaMode: (mode: DnaMode) => void
   toggleSpotify: () => void
+  addScanHistoryEntry: (input: Omit<ScanHistoryEntry, 'id' | 'scannedAt'>) => void
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -81,6 +86,7 @@ function loadState(): PersistedState {
         profile: parsed.profile ?? initialProfile,
         dnaMode: parsed.dnaMode ?? 'collection',
         claimedChallenges: parsed.claimedChallenges ?? [],
+        scanHistory: parsed.scanHistory ?? [],
       }
     }
   } catch {
@@ -93,6 +99,7 @@ function loadState(): PersistedState {
     profile: initialProfile,
     dnaMode: 'collection',
     claimedChallenges: [],
+    scanHistory: [],
   }
 }
 
@@ -206,6 +213,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({ ...prev, profile: { ...prev.profile, spotifyConnected: !prev.profile.spotifyConnected } }))
   }, [])
 
+  const addScanHistoryEntry = useCallback<AppContextValue['addScanHistoryEntry']>((input) => {
+    setState((prev) => ({
+      ...prev,
+      scanHistory: [
+        { id: nextId('scan'), scannedAt: new Date().toISOString(), ...input },
+        ...prev.scanHistory,
+      ].slice(0, MAX_SCAN_HISTORY),
+    }))
+  }, [])
+
   // derived: challenge progress (computed live from collection/digLog) + auto XP grant on completion
   const challenges = useMemo<Challenge[]>(() => {
     const newArtists = weeklyNewArtistCount(state.collection)
@@ -269,6 +286,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     addDigLogEntry,
     setDnaMode,
     toggleSpotify,
+    addScanHistoryEntry,
   }
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

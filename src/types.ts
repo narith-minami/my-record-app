@@ -90,3 +90,15 @@ export interface RecommendedRecord {
   matchScore: number
   reasons: string[]
 }
+
+export interface ScanHistoryEntry {
+  id: string
+  artist: string
+  title: string
+  bpm: string
+  releaseYear: string
+  genre: string
+  confidence: 'high' | 'medium' | 'low'
+  thumbnail?: string
+  scannedAt: string
+}

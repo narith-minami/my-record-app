@@ -1,7 +1,9 @@
-import { Camera, ExternalLink, Loader2, Music2, RotateCcw } from 'lucide-react'
+import { Camera, ExternalLink, History, Loader2, Music2, RotateCcw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Card } from '../components/ui'
 import { Screen } from '../components/Screen'
+import { useApp } from '../context/AppContext'
 
 type Step = 'camera' | 'scanning' | 'result'
 
@@ -19,17 +21,22 @@ interface IdentifyResult {
   label: string
   genre: string
   producer: string
+  bpm: string
   artistInfo: string
   notes: string
   sources: IdentifySource[]
 }
 
 const MAX_DIMENSION = 1024
+const THUMBNAIL_DIMENSION = 160
 
 export function JacketScan() {
+  const { addScanHistoryEntry } = useApp()
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const thumbnailCanvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const thumbnailRef = useRef<string | null>(null)
 
   const [step, setStep] = useState<Step>('camera')
   const [cameraError, setCameraError] = useState<string | null>(null)
@@ -73,7 +80,8 @@ export function JacketScan() {
   function capture() {
     const video = videoRef.current
     const canvas = canvasRef.current
-    if (!video || !canvas || video.videoWidth === 0) return
+    const thumbnailCanvas = thumbnailCanvasRef.current
+    if (!video || !canvas || !thumbnailCanvas || video.videoWidth === 0) return
 
     const scale = Math.min(1, MAX_DIMENSION / Math.max(video.videoWidth, video.videoHeight))
     canvas.width = video.videoWidth * scale
@@ -81,6 +89,15 @@ export function JacketScan() {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+    const thumbScale = Math.min(1, THUMBNAIL_DIMENSION / Math.max(video.videoWidth, video.videoHeight))
+    thumbnailCanvas.width = video.videoWidth * thumbScale
+    thumbnailCanvas.height = video.videoHeight * thumbScale
+    const thumbCtx = thumbnailCanvas.getContext('2d')
+    if (thumbCtx) {
+      thumbCtx.drawImage(video, 0, 0, thumbnailCanvas.width, thumbnailCanvas.height)
+      thumbnailRef.current = thumbnailCanvas.toDataURL('image/jpeg', 0.7)
+    }
 
     setPhotoUrl(canvas.toDataURL('image/jpeg', 0.85))
     const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1]
@@ -100,7 +117,18 @@ export function JacketScan() {
       const data = (await res.json()) as IdentifyResult
       setResult(data)
       setStep('result')
-      if (data.recognized) void searchYoutube(data.artist, data.title)
+      if (data.recognized) {
+        void searchYoutube(data.artist, data.title)
+        addScanHistoryEntry({
+          artist: data.artist,
+          title: data.title,
+          bpm: data.bpm,
+          releaseYear: data.releaseYear,
+          genre: data.genre,
+          confidence: data.confidence,
+          thumbnail: thumbnailRef.current ?? undefined,
+        })
+      }
     } catch {
       setScanError('解析に失敗しました。もう一度お試しください。')
       setStep('camera')
@@ -168,11 +196,24 @@ export function JacketScan() {
             </div>
           </div>
           <canvas ref={canvasRef} className="hidden" />
+          <canvas ref={thumbnailCanvasRef} className="hidden" />
         </div>
       )}
 
       {step !== 'camera' && (
-        <Screen title="ジャケットをスキャン" back>
+        <Screen
+          title="ジャケットをスキャン"
+          back
+          right={
+            <Link
+              to="/scan-history"
+              className="flex size-9 items-center justify-center rounded-full text-white/60 hover:bg-white/10"
+              aria-label="スキャン履歴"
+            >
+              <History className="size-5" />
+            </Link>
+          }
+        >
           {step === 'scanning' && (
             <div className="flex flex-col items-center gap-4 py-16">
               {photoUrl && <img src={photoUrl} alt="captured jacket" className="size-40 rounded-2xl object-cover opacity-70" />}
@@ -202,6 +243,7 @@ export function JacketScan() {
                       <MetaField label="レーベル" value={result.label} />
                       <MetaField label="ジャンル" value={result.genre} />
                       <MetaField label="プロデューサー" value={result.producer} />
+                      <MetaField label="BPM" value={result.bpm} />
                     </dl>
                   </Card>
 

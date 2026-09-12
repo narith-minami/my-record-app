@@ -1,4 +1,4 @@
-import { ChevronRight, Flame, MapPin, Sparkles } from 'lucide-react'
+import { Camera, ChevronRight, Flame, History, MapPin, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { GenreDonut } from '../components/charts'
 import { RecordCover } from '../components/RecordCover'
@@ -44,6 +44,23 @@ export function Home() {
       </header>
 
       <main className="flex-1 space-y-4 px-4 pb-28 pt-4">
+        <div className="grid grid-cols-2 gap-3">
+          <Link
+            to="/jacket-scan"
+            className="flex items-center gap-2 rounded-2xl border border-fuchsia-400/30 bg-fuchsia-500/10 px-3 py-3 text-sm font-semibold text-fuchsia-200"
+          >
+            <Camera className="size-4" />
+            ジャケットをスキャン
+          </Link>
+          <Link
+            to="/scan-history"
+            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3 text-sm font-semibold text-white/70"
+          >
+            <History className="size-4" />
+            スキャン履歴
+          </Link>
+        </div>
+
         <Link to="/dna" className="block">
           <Card>
             <SectionTitle right={<ChevronRight className="size-4 text-white/30" />}>あなたのDIG DNA</SectionTitle>
