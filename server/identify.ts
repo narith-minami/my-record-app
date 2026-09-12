@@ -14,6 +14,7 @@ export interface IdentifyResult {
   label: string
   genre: string
   producer: string
+  bpm: string
   artistInfo: string
   notes: string
   sources: IdentifySource[]
@@ -34,6 +35,7 @@ const RESEARCH_PROMPT = `あなたはレコード・CD・カセットのジャ�
 - レーベル名
 - ジャンル
 - プロデューサー
+- BPM（テンポ。曲名・アーティスト名が判明した場合、GetSongBPMやSongBPMなどのBPM専門サイトを含めて検索してください）
 - アーティストの簡単な経歴・情報（2〜3文程度）
 - ジャケットに写っている特記事項（エディション、再発盤かどうか等、分かれば）
 
@@ -103,6 +105,7 @@ export async function identifyJacket(
           label: { type: 'STRING' },
           genre: { type: 'STRING' },
           producer: { type: 'STRING' },
+          bpm: { type: 'STRING' },
           artistInfo: { type: 'STRING' },
           notes: { type: 'STRING' },
         },
@@ -115,6 +118,7 @@ export async function identifyJacket(
           'label',
           'genre',
           'producer',
+          'bpm',
           'artistInfo',
           'notes',
         ],
