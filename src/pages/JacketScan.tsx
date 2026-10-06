@@ -22,6 +22,7 @@ interface IdentifyResult {
   genre: string
   producer: string
   bpm: string
+  bpmSource: 'deezer' | 'search' | null
   artistInfo: string
   notes: string
   sources: IdentifySource[]
@@ -243,7 +244,10 @@ export function JacketScan() {
                       <MetaField label="レーベル" value={result.label} />
                       <MetaField label="ジャンル" value={result.genre} />
                       <MetaField label="プロデューサー" value={result.producer} />
-                      <MetaField label="BPM" value={result.bpm} />
+                      <MetaField
+                        label="BPM"
+                        value={result.bpmSource === 'search' ? `${result.bpm}（検索による推定）` : result.bpm}
+                      />
                     </dl>
                   </Card>
 
