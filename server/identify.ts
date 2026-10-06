@@ -1,4 +1,5 @@
 import type { GenerateContentResponse, GoogleGenAI } from '@google/genai'
+import { lookupDeezerBpm } from './deezer.ts'
 
 export interface IdentifySource {
   title: string
@@ -15,6 +16,7 @@ export interface IdentifyResult {
   genre: string
   producer: string
   bpm: string
+  bpmSource: 'deezer' | 'search' | null
   artistInfo: string
   notes: string
   sources: IdentifySource[]
@@ -131,9 +133,9 @@ export async function identifyJacket(
   const extractText = extractResponse.text
   if (!extractText) throw new Error('Gemini extract call returned an empty response')
 
-  let parsed: Omit<IdentifyResult, 'sources'>
+  let parsed: Omit<IdentifyResult, 'sources' | 'bpmSource'>
   try {
-    parsed = JSON.parse(extractText) as Omit<IdentifyResult, 'sources'>
+    parsed = JSON.parse(extractText) as Omit<IdentifyResult, 'sources' | 'bpmSource'>
   } catch {
     throw new Error(`Gemini returned unparseable JSON: ${extractText}`)
   }
@@ -143,7 +145,22 @@ export async function identifyJacket(
     `[jacket-scan] extract call (${EXTRACT_MODEL}): ${extractMs}ms, total: ${totalMs}ms, recognized=${parsed.recognized}`,
   )
 
-  return { ...parsed, sources: parsed.recognized ? sources : [] }
+  let bpm = parsed.bpm
+  let bpmSource: IdentifyResult['bpmSource'] = null
+  if (parsed.recognized) {
+    const deezerBpm = await lookupDeezerBpm(parsed.artist, parsed.title).catch((err) => {
+      console.warn('[jacket-scan] Deezer BPM lookup failed:', err)
+      return null
+    })
+    if (deezerBpm) {
+      bpm = String(deezerBpm)
+      bpmSource = 'deezer'
+    } else if (bpm && bpm !== '不明') {
+      bpmSource = 'search'
+    }
+  }
+
+  return { ...parsed, bpm, bpmSource, sources: parsed.recognized ? sources : [] }
 }
 
 function extractSources(response: GenerateContentResponse): IdentifySource[] {
