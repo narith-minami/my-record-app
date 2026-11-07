@@ -1,22 +1,23 @@
-import { Camera, ExternalLink, History, Loader2, Music2, RotateCcw } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { ArrowLeft, Camera, ExternalLink, History, Loader2, Music2, RotateCcw } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { Card } from '../components/ui'
-import { Screen } from '../components/Screen'
 import { useApp } from '../context/AppContext'
+import { GUIDE_RATIO, getGuideRect, useAutoCapture } from '../lib/useAutoCapture'
 
-type Step = 'camera' | 'scanning' | 'result'
+interface QuickResult {
+  recognized: boolean
+  artist: string
+  title: string
+  confidence: 'high' | 'medium' | 'low'
+}
 
 interface IdentifySource {
   title: string
   url: string
 }
 
-interface IdentifyResult {
-  recognized: boolean
-  artist: string
-  title: string
-  confidence: 'high' | 'medium' | 'low'
+interface EnrichResult {
   releaseYear: string
   label: string
   genre: string
@@ -28,39 +29,43 @@ interface IdentifyResult {
   sources: IdentifySource[]
 }
 
-const MAX_DIMENSION = 1024
+const MAX_DIMENSION = 768
 const THUMBNAIL_DIMENSION = 160
 
 export function JacketScan() {
   const { addScanHistoryEntry } = useApp()
+  const navigate = useNavigate()
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const thumbnailCanvasRef = useRef<HTMLCanvasElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
   const thumbnailRef = useRef<string | null>(null)
+  const scanIdRef = useRef(0)
 
-  const [step, setStep] = useState<Step>('camera')
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [scanError, setScanError] = useState<string | null>(null)
+  const [analyzing, setAnalyzing] = useState(false)
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
-  const [result, setResult] = useState<IdentifyResult | null>(null)
+  const [quick, setQuick] = useState<QuickResult | null>(null)
+  const [detail, setDetail] = useState<EnrichResult | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
   const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null)
   const [youtubeLoading, setYoutubeLoading] = useState(false)
 
-  useEffect(() => {
-    if (step !== 'camera') return
+  const sheetOpen = quick !== null
 
+  useEffect(() => {
     let cancelled = false
+    let stream: MediaStream | null = null
 
     navigator.mediaDevices
       .getUserMedia({ video: { facingMode: 'environment' } })
-      .then((stream) => {
+      .then((s) => {
         if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop())
+          s.getTracks().forEach((t) => t.stop())
           return
         }
-        streamRef.current = stream
-        if (videoRef.current) videoRef.current.srcObject = stream
+        stream = s
+        if (videoRef.current) videoRef.current.srcObject = s
       })
       .catch((err: DOMException) => {
         if (cancelled) return
@@ -73,40 +78,48 @@ export function JacketScan() {
 
     return () => {
       cancelled = true
-      streamRef.current?.getTracks().forEach((t) => t.stop())
-      streamRef.current = null
+      stream?.getTracks().forEach((t) => t.stop())
     }
-  }, [step])
+  }, [])
 
-  function capture() {
+  const capture = useCallback(() => {
     const video = videoRef.current
     const canvas = canvasRef.current
     const thumbnailCanvas = thumbnailCanvasRef.current
-    if (!video || !canvas || !thumbnailCanvas || video.videoWidth === 0) return
+    const rect = video && getGuideRect(video)
+    if (!video || !canvas || !thumbnailCanvas || !rect) return
 
-    const scale = Math.min(1, MAX_DIMENSION / Math.max(video.videoWidth, video.videoHeight))
-    canvas.width = video.videoWidth * scale
-    canvas.height = video.videoHeight * scale
+    // crop to the guide square: fewer pixels to upload and less background noise for the model
+    const size = Math.round(Math.min(MAX_DIMENSION, rect.side))
+    canvas.width = size
+    canvas.height = size
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    ctx.drawImage(video, rect.sx, rect.sy, rect.side, rect.side, 0, 0, size, size)
 
-    const thumbScale = Math.min(1, THUMBNAIL_DIMENSION / Math.max(video.videoWidth, video.videoHeight))
-    thumbnailCanvas.width = video.videoWidth * thumbScale
-    thumbnailCanvas.height = video.videoHeight * thumbScale
+    const thumbSize = Math.round(Math.min(THUMBNAIL_DIMENSION, rect.side))
+    thumbnailCanvas.width = thumbSize
+    thumbnailCanvas.height = thumbSize
     const thumbCtx = thumbnailCanvas.getContext('2d')
     if (thumbCtx) {
-      thumbCtx.drawImage(video, 0, 0, thumbnailCanvas.width, thumbnailCanvas.height)
+      thumbCtx.drawImage(video, rect.sx, rect.sy, rect.side, rect.side, 0, 0, thumbSize, thumbSize)
       thumbnailRef.current = thumbnailCanvas.toDataURL('image/jpeg', 0.7)
     }
 
-    setPhotoUrl(canvas.toDataURL('image/jpeg', 0.85))
-    const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1]
-    setStep('scanning')
-    void identify(base64)
-  }
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.75)
+    setPhotoUrl(dataUrl)
+    setAnalyzing(true)
+    void identify(dataUrl.split(',')[1])
+  }, [])
+
+  const progress = useAutoCapture({
+    videoRef,
+    enabled: !cameraError && !analyzing && !sheetOpen,
+    onTrigger: capture,
+  })
 
   async function identify(base64: string) {
+    const scanId = ++scanIdRef.current
     setScanError(null)
     try {
       const res = await fetch('/api/identify-jacket', {
@@ -115,240 +128,285 @@ export function JacketScan() {
         body: JSON.stringify({ image: base64, mimeType: 'image/jpeg' }),
       })
       if (!res.ok) throw new Error(`request failed: ${res.status}`)
-      const data = (await res.json()) as IdentifyResult
-      setResult(data)
-      setStep('result')
-      if (data.recognized) {
-        void searchYoutube(data.artist, data.title)
-        addScanHistoryEntry({
-          artist: data.artist,
-          title: data.title,
-          bpm: data.bpm,
-          releaseYear: data.releaseYear,
-          genre: data.genre,
-          confidence: data.confidence,
-          thumbnail: thumbnailRef.current ?? undefined,
-        })
+      const data = (await res.json()) as QuickResult
+      if (scanId !== scanIdRef.current) return
+      setAnalyzing(false)
+
+      if (!data.recognized) {
+        setScanError('認識できませんでした。ジャケットを少し動かして、もう一度かざしてください。')
+        return
       }
+
+      setQuick(data)
+      // run the slow lookups in parallel; the artist/title card is already visible
+      void searchYoutube(scanId, data.artist, data.title)
+      void enrich(scanId, data)
     } catch {
+      if (scanId !== scanIdRef.current) return
+      setAnalyzing(false)
       setScanError('解析に失敗しました。もう一度お試しください。')
-      setStep('camera')
     }
   }
 
-  async function searchYoutube(artist: string, title: string) {
+  async function enrich(scanId: number, base: QuickResult) {
+    setDetail(null)
+    setDetailLoading(true)
+    let data: EnrichResult | null = null
+    try {
+      const res = await fetch(
+        `/api/enrich-jacket?artist=${encodeURIComponent(base.artist)}&title=${encodeURIComponent(base.title)}`,
+      )
+      if (!res.ok) throw new Error(`request failed: ${res.status}`)
+      data = (await res.json()) as EnrichResult
+    } catch {
+      data = null
+    }
+    if (scanId !== scanIdRef.current) return
+    setDetail(data)
+    setDetailLoading(false)
+    addScanHistoryEntry({
+      artist: base.artist,
+      title: base.title,
+      bpm: data?.bpm ?? '不明',
+      releaseYear: data?.releaseYear ?? '不明',
+      genre: data?.genre ?? '不明',
+      confidence: base.confidence,
+      thumbnail: thumbnailRef.current ?? undefined,
+    })
+  }
+
+  async function searchYoutube(scanId: number, artist: string, title: string) {
     setYoutubeLoading(true)
     setYoutubeVideoId(null)
+    let videoId: string | null = null
     try {
       const res = await fetch(`/api/youtube-search?q=${encodeURIComponent(`${artist} ${title}`)}`)
       if (!res.ok) throw new Error(`request failed: ${res.status}`)
-      const data = (await res.json()) as { videoId: string | null }
-      setYoutubeVideoId(data.videoId)
+      videoId = ((await res.json()) as { videoId: string | null }).videoId
     } catch {
-      setYoutubeVideoId(null)
-    } finally {
-      setYoutubeLoading(false)
+      videoId = null
     }
+    if (scanId !== scanIdRef.current) return
+    setYoutubeVideoId(videoId)
+    setYoutubeLoading(false)
   }
 
-  function retry() {
-    setResult(null)
+  /** Dismiss the result sheet and go back to watching for the next jacket. */
+  function scanNext() {
+    scanIdRef.current++
+    setQuick(null)
+    setDetail(null)
+    setDetailLoading(false)
     setPhotoUrl(null)
-    setCameraError(null)
     setScanError(null)
     setYoutubeVideoId(null)
     setYoutubeLoading(false)
-    setStep('camera')
   }
 
-  const query = result ? encodeURIComponent(`${result.artist} ${result.title}`) : ''
+  const query = quick ? encodeURIComponent(`${quick.artist} ${quick.title}`) : ''
+  const guideState = analyzing ? 'analyzing' : progress > 0 ? 'holding' : 'searching'
 
   return (
-    <>
-      {step === 'camera' && (
-        <div className="fixed inset-0 z-50 bg-black">
-          <div className="relative size-full">
-            <video ref={videoRef} autoPlay playsInline muted className="size-full object-cover" />
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="aspect-square w-[70%] rounded-2xl border-2 border-dashed border-fuchsia-400/70" />
-            </div>
+    <div className="fixed inset-0 z-50 bg-black">
+      <video ref={videoRef} autoPlay playsInline muted className="size-full object-cover" />
+      <canvas ref={canvasRef} className="hidden" />
+      <canvas ref={thumbnailCanvasRef} className="hidden" />
 
-            {cameraError && (
-              <div className="absolute inset-x-4 top-6 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-center text-sm text-red-200">
-                {cameraError}
-              </div>
-            )}
-            {scanError && (
-              <div className="absolute inset-x-4 top-6 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-center text-sm text-red-200">
-                {scanError}
-              </div>
-            )}
+      {/* scan guide */}
+      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-4">
+        <div
+          style={{ width: `${GUIDE_RATIO * 100}%` }}
+          className={`relative aspect-square rounded-2xl border-2 transition-colors ${
+            guideState === 'searching'
+              ? 'border-dashed border-fuchsia-400/70'
+              : 'border-solid border-fuchsia-300 shadow-[0_0_24px_rgba(232,121,249,0.45)]'
+          } ${guideState === 'analyzing' ? 'animate-pulse' : ''}`}
+        >
+          {guideState === 'holding' && (
+            <div
+              className="absolute -bottom-1 left-0 h-1 rounded-full bg-fuchsia-300"
+              style={{ width: `${progress * 100}%` }}
+            />
+          )}
+        </div>
+        {!sheetOpen && (
+          <p className="rounded-full bg-black/50 px-3 py-1 text-xs text-white/80">
+            {guideState === 'analyzing'
+              ? '解析中...'
+              : guideState === 'holding'
+                ? 'そのまま固定してください'
+                : 'ジャケットを枠に合わせてかざしてください'}
+          </p>
+        )}
+      </div>
 
-            <div className="absolute inset-x-0 bottom-10 flex justify-center">
-              <button
-                type="button"
-                onClick={capture}
-                disabled={!!cameraError}
-                aria-label="撮影"
-                className="flex size-16 items-center justify-center rounded-full border-4 border-white/80 bg-white/20 disabled:opacity-30"
-              >
-                <Camera className="size-6 text-white" />
-              </button>
-            </div>
-          </div>
-          <canvas ref={canvasRef} className="hidden" />
-          <canvas ref={thumbnailCanvasRef} className="hidden" />
+      {/* top bar */}
+      <div className="absolute inset-x-0 top-0 flex items-center justify-between p-3">
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          aria-label="戻る"
+          className="flex size-10 items-center justify-center rounded-full bg-black/40 text-white"
+        >
+          <ArrowLeft className="size-5" />
+        </button>
+        <Link
+          to="/scan-history"
+          aria-label="スキャン履歴"
+          className="flex size-10 items-center justify-center rounded-full bg-black/40 text-white"
+        >
+          <History className="size-5" />
+        </Link>
+      </div>
+
+      {(cameraError || scanError) && !sheetOpen && (
+        <div className="absolute inset-x-4 top-16 rounded-xl border border-red-400/30 bg-red-500/20 px-4 py-3 text-center text-sm text-red-100">
+          {cameraError ?? scanError}
         </div>
       )}
 
-      {step !== 'camera' && (
-        <Screen
-          title="ジャケットをスキャン"
-          back
-          right={
-            <Link
-              to="/scan-history"
-              className="flex size-9 items-center justify-center rounded-full text-white/60 hover:bg-white/10"
-              aria-label="スキャン履歴"
-            >
-              <History className="size-5" />
-            </Link>
-          }
-        >
-          {step === 'scanning' && (
-            <div className="flex flex-col items-center gap-4 py-16">
-              {photoUrl && <img src={photoUrl} alt="captured jacket" className="size-40 rounded-2xl object-cover opacity-70" />}
-              <div className="flex items-center gap-2 text-fuchsia-300">
-                <Loader2 className="size-4 animate-spin" />
-                <span className="text-sm font-medium">Web検索で確認中...</span>
-              </div>
+      {/* manual shutter (fallback) */}
+      {!sheetOpen && (
+        <div className="absolute inset-x-0 bottom-10 flex justify-center">
+          <button
+            type="button"
+            onClick={capture}
+            disabled={!!cameraError || analyzing}
+            aria-label="撮影"
+            className="flex size-16 items-center justify-center rounded-full border-4 border-white/80 bg-white/20 disabled:opacity-30"
+          >
+            {analyzing ? <Loader2 className="size-6 animate-spin text-white" /> : <Camera className="size-6 text-white" />}
+          </button>
+        </div>
+      )}
+
+      {/* result sheet */}
+      {quick && (
+        <div className="absolute inset-x-0 bottom-0 max-h-[75%] overflow-y-auto rounded-t-3xl border-t border-white/10 bg-[#0e0b1a] p-4 pb-8">
+          <div className="mb-3 flex items-center gap-3">
+            {photoUrl && <img src={photoUrl} alt="captured jacket" className="size-16 shrink-0 rounded-xl object-cover" />}
+            <div className="min-w-0">
+              <p className="truncate text-lg font-semibold text-white">{quick.artist}</p>
+              <p className="truncate text-sm text-white/60">{quick.title}</p>
+            </div>
+          </div>
+
+          {detailLoading && (
+            <div className="mb-3 flex items-center gap-2 text-xs text-fuchsia-300">
+              <Loader2 className="size-3.5 animate-spin" />
+              Web検索で詳細を確認中...
             </div>
           )}
 
-          {step === 'result' && result && (
-            <div>
-              {photoUrl && (
-                <img src={photoUrl} alt="captured jacket" className="mx-auto mb-4 size-40 rounded-2xl object-cover" />
-              )}
+          {detail && (
+            <>
+              <Card className="mb-3">
+                <dl className="grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
+                  <MetaField label="発売年" value={detail.releaseYear} />
+                  <MetaField label="レーベル" value={detail.label} />
+                  <MetaField label="ジャンル" value={detail.genre} />
+                  <MetaField label="プロデューサー" value={detail.producer} />
+                  <MetaField
+                    label="BPM"
+                    value={detail.bpmSource === 'search' ? `${detail.bpm}（検索による推定）` : detail.bpm}
+                  />
+                </dl>
+              </Card>
 
-              {result.recognized ? (
-                <>
-                  <Card className="mb-3 text-center">
-                    <p className="text-lg font-semibold text-white">{result.artist}</p>
-                    <p className="text-sm text-white/60">{result.title}</p>
-                  </Card>
-
-                  <Card className="mb-3">
-                    <dl className="grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
-                      <MetaField label="発売年" value={result.releaseYear} />
-                      <MetaField label="レーベル" value={result.label} />
-                      <MetaField label="ジャンル" value={result.genre} />
-                      <MetaField label="プロデューサー" value={result.producer} />
-                      <MetaField
-                        label="BPM"
-                        value={result.bpmSource === 'search' ? `${result.bpm}（検索による推定）` : result.bpm}
-                      />
-                    </dl>
-                  </Card>
-
-                  {result.artistInfo && (
-                    <Card className="mb-3">
-                      <p className="mb-1 text-[11px] font-medium text-white/40">アーティスト情報</p>
-                      <p className="text-sm leading-relaxed text-white/75">{result.artistInfo}</p>
-                    </Card>
-                  )}
-
-                  {result.notes && (
-                    <Card className="mb-3">
-                      <p className="mb-1 text-[11px] font-medium text-white/40">補足</p>
-                      <p className="text-xs text-white/45">{result.notes}</p>
-                    </Card>
-                  )}
-
-                  {result.sources.length > 0 && (
-                    <Card className="mb-4">
-                      <p className="mb-1.5 text-[11px] font-medium text-white/40">Web検索で確認</p>
-                      <ul className="space-y-1">
-                        {result.sources.map((s) => (
-                          <li key={s.url}>
-                            <a
-                              href={s.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="flex items-center gap-1 text-xs text-fuchsia-300/80 hover:text-fuchsia-300 hover:underline"
-                            >
-                              <ExternalLink className="size-3 shrink-0" />
-                              <span className="truncate">{s.title}</span>
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    </Card>
-                  )}
-                </>
-              ) : (
-                <Card className="mb-4 border-amber-400/25 bg-amber-500/[0.06] text-center">
-                  <p className="text-sm text-amber-200">認識できませんでした。もう一度お試しください。</p>
+              {detail.artistInfo && (
+                <Card className="mb-3">
+                  <p className="mb-1 text-[11px] font-medium text-white/40">アーティスト情報</p>
+                  <p className="text-sm leading-relaxed text-white/75">{detail.artistInfo}</p>
                 </Card>
               )}
 
-              {result.recognized && (
-                <div className="space-y-2">
-                  <a
-                    href={`https://open.spotify.com/search/${query}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center justify-center gap-2 rounded-xl bg-green-500 py-3 text-sm font-semibold text-white"
-                  >
-                    <Music2 className="size-4" />
-                    Spotifyで検索
-                  </a>
-                  {youtubeLoading && (
-                    <div className="flex items-center justify-center gap-2 rounded-xl border border-white/10 py-3 text-xs text-white/40">
-                      <Loader2 className="size-3.5 animate-spin" />
-                      YouTubeを検索中...
-                    </div>
-                  )}
-
-                  {!youtubeLoading && youtubeVideoId && (
-                    <div className="overflow-hidden rounded-xl bg-black">
-                      <iframe
-                        src={`https://www.youtube.com/embed/${youtubeVideoId}`}
-                        title="YouTube video player"
-                        className="aspect-video w-full"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                      />
-                    </div>
-                  )}
-
-                  {!youtubeLoading && !youtubeVideoId && (
-                    <a
-                      href={`https://www.youtube.com/results?search_query=${query}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center justify-center gap-2 rounded-xl bg-red-500 py-3 text-sm font-semibold text-white"
-                    >
-                      <ExternalLink className="size-4" />
-                      YouTubeで検索
-                    </a>
-                  )}
-                </div>
+              {detail.notes && (
+                <Card className="mb-3">
+                  <p className="mb-1 text-[11px] font-medium text-white/40">補足</p>
+                  <p className="text-xs text-white/45">{detail.notes}</p>
+                </Card>
               )}
 
-              <button
-                type="button"
-                onClick={retry}
-                className="mt-3 flex w-full items-center justify-center gap-1 rounded-xl border border-white/10 py-3 text-center text-xs text-white/45 hover:bg-white/[0.04]"
-              >
-                <RotateCcw className="size-3.5" />
-                もう一度撮影する
-              </button>
-            </div>
+              {detail.sources.length > 0 && (
+                <Card className="mb-3">
+                  <p className="mb-1.5 text-[11px] font-medium text-white/40">Web検索で確認</p>
+                  <ul className="space-y-1">
+                    {detail.sources.map((s) => (
+                      <li key={s.url}>
+                        <a
+                          href={s.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1 text-xs text-fuchsia-300/80 hover:text-fuchsia-300 hover:underline"
+                        >
+                          <ExternalLink className="size-3 shrink-0" />
+                          <span className="truncate">{s.title}</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              )}
+            </>
           )}
-        </Screen>
+
+          {!detailLoading && !detail && (
+            <p className="mb-3 text-xs text-white/40">詳細情報を取得できませんでした。</p>
+          )}
+
+          <div className="space-y-2">
+            <a
+              href={`https://open.spotify.com/search/${query}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-center gap-2 rounded-xl bg-green-500 py-3 text-sm font-semibold text-white"
+            >
+              <Music2 className="size-4" />
+              Spotifyで検索
+            </a>
+            {youtubeLoading && (
+              <div className="flex items-center justify-center gap-2 rounded-xl border border-white/10 py-3 text-xs text-white/40">
+                <Loader2 className="size-3.5 animate-spin" />
+                YouTubeを検索中...
+              </div>
+            )}
+
+            {!youtubeLoading && youtubeVideoId && (
+              <div className="overflow-hidden rounded-xl bg-black">
+                <iframe
+                  src={`https://www.youtube.com/embed/${youtubeVideoId}`}
+                  title="YouTube video player"
+                  className="aspect-video w-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              </div>
+            )}
+
+            {!youtubeLoading && !youtubeVideoId && (
+              <a
+                href={`https://www.youtube.com/results?search_query=${query}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-center gap-2 rounded-xl bg-red-500 py-3 text-sm font-semibold text-white"
+              >
+                <ExternalLink className="size-4" />
+                YouTubeで検索
+              </a>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={scanNext}
+            className="mt-3 flex w-full items-center justify-center gap-1 rounded-xl border border-white/10 py-3 text-center text-xs text-white/60 hover:bg-white/[0.04]"
+          >
+            <RotateCcw className="size-3.5" />
+            次のジャケットをスキャン
+          </button>
+        </div>
       )}
-    </>
+    </div>
   )
 }
 
