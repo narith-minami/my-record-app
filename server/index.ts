@@ -2,7 +2,7 @@ import 'dotenv/config'
 import { GoogleGenAI } from '@google/genai'
 import express from 'express'
 import { errorBody } from './errors.ts'
-import { enrichRecord, quickIdentify } from './identify.ts'
+import { quickIdentify, verifyAndEnrich } from './identify.ts'
 import { searchYoutubeVideo } from './youtube.ts'
 
 const apiKey = process.env.GEMINI_API_KEY
@@ -33,17 +33,25 @@ app.post('/api/identify-jacket', async (req, res) => {
   }
 })
 
-app.get('/api/enrich-jacket', async (req, res) => {
-  const { artist, title } = req.query
-  if (typeof artist !== 'string' || !artist || typeof title !== 'string' || !title) {
-    res.status(400).json(errorBody('request', 'artist and title are required'))
+app.post('/api/enrich-jacket', async (req, res) => {
+  const { image, mimeType, artist, title, printedText } = req.body ?? {}
+  if (typeof image !== 'string' || !image || typeof artist !== 'string' || !artist || typeof title !== 'string' || !title) {
+    res.status(400).json(errorBody('request', 'image, artist and title are required'))
     return
   }
 
   try {
-    res.json(await enrichRecord(genai, artist, title))
+    res.json(
+      await verifyAndEnrich(genai, {
+        image,
+        mimeType: typeof mimeType === 'string' ? mimeType : 'image/jpeg',
+        artist,
+        title,
+        printedText: typeof printedText === 'string' ? printedText : '',
+      }),
+    )
   } catch (err) {
-    console.error('enrichRecord failed:', err)
+    console.error('verifyAndEnrich failed:', err)
     res.status(502).json(errorBody('gemini', 'Gemini request failed', err))
   }
 })
