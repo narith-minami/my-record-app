@@ -1,9 +1,10 @@
 import { ArrowLeft, Camera, ExternalLink, History, Loader2, Music2, RotateCcw } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Card } from '../components/ui'
 import { useApp } from '../context/AppContext'
 import { GUIDE_RATIO, getGuideRect, useAutoCapture } from '../lib/useAutoCapture'
+import { useCamera } from '../lib/useCamera'
 
 interface QuickResult {
   recognized: boolean
@@ -110,7 +111,6 @@ export function JacketScan() {
   const scanIdRef = useRef(0)
   const [previous, setPrevious] = useState<{ artist: string; title: string } | null>(null)
 
-  const [cameraError, setCameraError] = useState<string | null>(null)
   const [scanError, setScanError] = useState<ScanErrorInfo | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
@@ -123,34 +123,8 @@ export function JacketScan() {
 
   const sheetOpen = quick !== null
 
-  useEffect(() => {
-    let cancelled = false
-    let stream: MediaStream | null = null
-
-    navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: 'environment' } })
-      .then((s) => {
-        if (cancelled) {
-          s.getTracks().forEach((t) => t.stop())
-          return
-        }
-        stream = s
-        if (videoRef.current) videoRef.current.srcObject = s
-      })
-      .catch((err: DOMException) => {
-        if (cancelled) return
-        setCameraError(
-          err.name === 'NotAllowedError'
-            ? 'カメラへのアクセスを許可してください'
-            : 'カメラが見つかりませんでした',
-        )
-      })
-
-    return () => {
-      cancelled = true
-      stream?.getTracks().forEach((t) => t.stop())
-    }
-  }, [])
+  const camera = useCamera(videoRef)
+  const cameraError = camera.error
 
   const capture = useCallback(() => {
     const video = videoRef.current
@@ -184,7 +158,7 @@ export function JacketScan() {
 
   const progress = useAutoCapture({
     videoRef,
-    enabled: !cameraError && !analyzing && !sheetOpen,
+    enabled: camera.ready && !analyzing && !sheetOpen,
     onTrigger: capture,
   })
 
@@ -289,6 +263,7 @@ export function JacketScan() {
 
   /** Dismiss the result sheet and go back to watching for the next jacket. */
   function scanNext() {
+    camera.resume()
     scanIdRef.current++
     setQuick(null)
     setDetail(null)
@@ -337,6 +312,30 @@ export function JacketScan() {
           </p>
         )}
       </div>
+
+      {!sheetOpen && camera.needsTap && (
+        <button
+          type="button"
+          onClick={camera.tapToStart}
+          className="absolute inset-0 z-[5] flex items-center justify-center bg-black/60 text-sm font-semibold text-white"
+        >
+          タップしてカメラを開始
+        </button>
+      )}
+
+      {!sheetOpen && camera.stalledDetail && (
+        <div className="absolute inset-x-4 top-1/3 z-[5] rounded-xl border border-white/20 bg-black/80 p-4 text-center text-sm text-white">
+          <p>カメラ映像を表示できません。</p>
+          <button
+            type="button"
+            onClick={camera.restart}
+            className="mt-2 rounded-lg bg-fuchsia-500 px-4 py-2 text-xs font-semibold text-white"
+          >
+            カメラを再起動
+          </button>
+          <ErrorDetails detail={camera.stalledDetail} />
+        </div>
+      )}
 
       {/* top bar */}
       <div className="absolute inset-x-0 top-0 flex items-center justify-between p-3">
