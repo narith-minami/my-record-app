@@ -379,155 +379,178 @@ export function JacketScan() {
         </div>
       )}
 
-      {/* result sheet */}
+      {/* full-screen result: fixed header (title + video), scrolling details, fixed footer */}
       {quick && (
-        <div className="absolute inset-x-0 bottom-0 max-h-[75%] overflow-y-auto rounded-t-3xl border-t border-white/10 bg-[#0e0b1a] p-4 pb-8">
-          <div className="mb-3 flex items-center gap-3">
-            {photoUrl && <img src={photoUrl} alt="captured jacket" className="size-16 shrink-0 rounded-xl object-cover" />}
-            <div className="min-w-0">
-              <p className="truncate text-lg font-semibold text-white">{quick.artist}</p>
-              <p className="truncate text-sm text-white/60">{quick.title}</p>
+        <div className="fixed inset-0 z-10 flex h-dvh flex-col bg-[#0e0b1a]">
+          <header className="shrink-0 border-b border-white/10 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+            <div className="mb-3 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={scanNext}
+                aria-label="カメラに戻る"
+                className="flex size-9 items-center justify-center rounded-full bg-white/10 text-white"
+              >
+                <ArrowLeft className="size-5" />
+              </button>
+              <Link
+                to="/scan-history"
+                aria-label="スキャン履歴"
+                className="flex size-9 items-center justify-center rounded-full bg-white/10 text-white"
+              >
+                <History className="size-5" />
+              </Link>
             </div>
-          </div>
 
-          <div className="mb-3 text-xs">
-            {detailLoading ? (
-              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-200">候補・Web検索で確認中</span>
-            ) : detail?.verified ? (
-              <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-green-300">
-                {detail.corrected ? '検索で訂正・確認済み' : '確認済み'}
-              </span>
-            ) : (
-              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-200">未確認（候補）</span>
-            )}
-            {previous && (
-              <p className="mt-1 text-white/40">
-                読み取り候補: {previous.artist} / {previous.title}
-              </p>
-            )}
-            {!detailLoading && !detail?.verified && (
-              <p className="mt-1 text-white/50">
-                違う場合はジャケットの文字がはっきり見えるように、もう一度撮影してください。
-              </p>
-            )}
-          </div>
-
-          {detailLoading && (
-            <div className="mb-3 flex items-center gap-2 text-xs text-fuchsia-300">
-              <Loader2 className="size-3.5 animate-spin" />
-              Web検索で確認・詳細を取得中...
-            </div>
-          )}
-
-          {detail && (
-            <>
-              <Card className="mb-3">
-                <dl className="grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
-                  <MetaField label="発売年" value={detail.releaseYear} />
-                  <MetaField label="レーベル" value={detail.label} />
-                  <MetaField label="ジャンル" value={detail.genre} />
-                  <MetaField label="プロデューサー" value={detail.producer} />
-                  <MetaField
-                    label="BPM"
-                    value={detail.bpmSource === 'search' ? `${detail.bpm}（検索による推定）` : detail.bpm}
-                  />
-                </dl>
-              </Card>
-
-              {detail.artistInfo && (
-                <Card className="mb-3">
-                  <p className="mb-1 text-[11px] font-medium text-white/40">アーティスト情報</p>
-                  <p className="text-sm leading-relaxed text-white/75">{detail.artistInfo}</p>
-                </Card>
-              )}
-
-              {detail.notes && (
-                <Card className="mb-3">
-                  <p className="mb-1 text-[11px] font-medium text-white/40">補足</p>
-                  <p className="text-xs text-white/45">{detail.notes}</p>
-                </Card>
-              )}
-
-              {detail.sources.length > 0 && (
-                <Card className="mb-3">
-                  <p className="mb-1.5 text-[11px] font-medium text-white/40">Web検索で確認</p>
-                  <ul className="space-y-1">
-                    {detail.sources.map((s) => (
-                      <li key={s.url}>
-                        <a
-                          href={s.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center gap-1 text-xs text-fuchsia-300/80 hover:text-fuchsia-300 hover:underline"
-                        >
-                          <ExternalLink className="size-3 shrink-0" />
-                          <span className="truncate">{s.title}</span>
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </Card>
-              )}
-            </>
-          )}
-
-          {!detailLoading && !detail && (
-            <div className="mb-3 text-xs text-white/40">
-              詳細情報を取得できませんでした。
-              {detailError && <ErrorDetails detail={detailError} />}
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <a
-              href={`https://open.spotify.com/search/${query}`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center justify-center gap-2 rounded-xl bg-green-500 py-3 text-sm font-semibold text-white"
-            >
-              <Music2 className="size-4" />
-              Spotifyで検索
-            </a>
-            {youtubeLoading && (
-              <div className="flex items-center justify-center gap-2 rounded-xl border border-white/10 py-3 text-xs text-white/40">
-                <Loader2 className="size-3.5 animate-spin" />
-                YouTubeを検索中...
+            <div className="mb-2 flex items-center gap-3">
+              {photoUrl && <img src={photoUrl} alt="captured jacket" className="size-14 shrink-0 rounded-xl object-cover" />}
+              <div className="min-w-0">
+                <p className="truncate text-lg font-semibold text-white">{quick.artist}</p>
+                <p className="truncate text-sm text-white/60">{quick.title}</p>
               </div>
-            )}
+            </div>
 
-            {!youtubeLoading && youtubeVideoId && (
-              <div className="overflow-hidden rounded-xl bg-black">
+            <div className="mb-2 text-xs">
+              {detailLoading ? (
+                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-200">候補・Web検索で確認中</span>
+              ) : detail?.verified ? (
+                <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-green-300">
+                  {detail.corrected ? '検索で訂正・確認済み' : '確認済み'}
+                </span>
+              ) : (
+                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-200">未確認（候補）</span>
+              )}
+              {previous && (
+                <span className="ml-2 text-white/40">
+                  読み取り候補: {previous.artist} / {previous.title}
+                </span>
+              )}
+              {!detailLoading && !detail?.verified && (
+                <p className="mt-1 text-white/50">違う場合は、文字がはっきり見えるようにもう一度撮影してください。</p>
+              )}
+            </div>
+
+            {/* video slot keeps the same height in every state so the layout never jumps */}
+            <div className="aspect-video max-h-[30dvh] w-full overflow-hidden rounded-xl bg-black">
+              {youtubeLoading ? (
+                <div className="flex size-full items-center justify-center gap-2 text-xs text-white/40">
+                  <Loader2 className="size-3.5 animate-spin" />
+                  YouTubeを検索中...
+                </div>
+              ) : youtubeVideoId ? (
                 <iframe
                   src={`https://www.youtube.com/embed/${youtubeVideoId}`}
                   title="YouTube video player"
-                  className="aspect-video w-full"
+                  className="size-full"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen
                 />
-              </div>
-            )}
+              ) : (
+                <div className="flex size-full items-center justify-center text-xs text-white/40">
+                  動画が見つかりませんでした
+                </div>
+              )}
+            </div>
 
-            {!youtubeLoading && !youtubeVideoId && (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <a
+                href={`https://open.spotify.com/search/${query}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-center gap-1.5 rounded-xl bg-green-500 py-2 text-xs font-semibold text-white"
+              >
+                <Music2 className="size-4" />
+                Spotifyで検索
+              </a>
               <a
                 href={`https://www.youtube.com/results?search_query=${query}`}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center justify-center gap-2 rounded-xl bg-red-500 py-3 text-sm font-semibold text-white"
+                className="flex items-center justify-center gap-1.5 rounded-xl bg-red-500 py-2 text-xs font-semibold text-white"
               >
                 <ExternalLink className="size-4" />
                 YouTubeで検索
               </a>
+            </div>
+          </header>
+
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
+            {detailLoading && (
+              <div className="mb-3 flex items-center gap-2 text-xs text-fuchsia-300">
+                <Loader2 className="size-3.5 animate-spin" />
+                Web検索で確認・詳細を取得中...
+              </div>
+            )}
+
+            {detail && (
+              <>
+                <Card className="mb-3">
+                  <dl className="grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
+                    <MetaField label="発売年" value={detail.releaseYear} />
+                    <MetaField label="レーベル" value={detail.label} />
+                    <MetaField label="ジャンル" value={detail.genre} />
+                    <MetaField label="プロデューサー" value={detail.producer} />
+                    <MetaField
+                      label="BPM"
+                      value={detail.bpmSource === 'search' ? `${detail.bpm}（検索による推定）` : detail.bpm}
+                    />
+                  </dl>
+                </Card>
+
+                {detail.artistInfo && (
+                  <Card className="mb-3">
+                    <p className="mb-1 text-[11px] font-medium text-white/40">アーティスト情報</p>
+                    <p className="text-sm leading-relaxed text-white/75">{detail.artistInfo}</p>
+                  </Card>
+                )}
+
+                {detail.notes && (
+                  <Card className="mb-3">
+                    <p className="mb-1 text-[11px] font-medium text-white/40">補足</p>
+                    <p className="text-xs text-white/45">{detail.notes}</p>
+                  </Card>
+                )}
+
+                {detail.sources.length > 0 && (
+                  <Card className="mb-3">
+                    <p className="mb-1.5 text-[11px] font-medium text-white/40">Web検索で確認</p>
+                    <ul className="space-y-1">
+                      {detail.sources.map((s) => (
+                        <li key={s.url}>
+                          <a
+                            href={s.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-1 text-xs text-fuchsia-300/80 hover:text-fuchsia-300 hover:underline"
+                          >
+                            <ExternalLink className="size-3 shrink-0" />
+                            <span className="truncate">{s.title}</span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </Card>
+                )}
+              </>
+            )}
+
+            {!detailLoading && !detail && (
+              <div className="mb-3 text-xs text-white/40">
+                詳細情報を取得できませんでした。
+                {detailError && <ErrorDetails detail={detailError} />}
+              </div>
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={scanNext}
-            className="mt-3 flex w-full items-center justify-center gap-1 rounded-xl border border-white/10 py-3 text-center text-xs text-white/60 hover:bg-white/[0.04]"
-          >
-            <RotateCcw className="size-3.5" />
-            次のジャケットをスキャン
-          </button>
+          <footer className="shrink-0 border-t border-white/10 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+            <button
+              type="button"
+              onClick={scanNext}
+              className="flex w-full items-center justify-center gap-1 rounded-xl border border-white/10 py-3 text-center text-xs text-white/70 hover:bg-white/[0.04]"
+            >
+              <RotateCcw className="size-3.5" />
+              次のジャケットをスキャン
+            </button>
+          </footer>
         </div>
       )}
     </div>
