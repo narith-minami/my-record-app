@@ -29,6 +29,69 @@ interface EnrichResult {
   sources: IdentifySource[]
 }
 
+interface ScanErrorInfo {
+  message: string
+  detail: string
+}
+
+/** Collects status / server stage+detail / network exception into a copyable debug string. */
+async function describeFailure(res: Response | null, err: unknown): Promise<string> {
+  const lines: string[] = [`time: ${new Date().toISOString()}`]
+  if (res) {
+    lines.push(`HTTP ${res.status} ${res.statusText}`.trim())
+    try {
+      const body = (await res.clone().json()) as { error?: string; stage?: string; detail?: string }
+      if (body.stage) lines.push(`stage: ${body.stage}`)
+      if (body.error) lines.push(`error: ${body.error}`)
+      if (body.detail) lines.push(`detail: ${body.detail}`)
+    } catch {
+      const text = await res.text().catch(() => '')
+      if (text) lines.push(`body: ${text.slice(0, 300)}`)
+    }
+  } else if (err instanceof Error) {
+    lines.push(`${err.name}: ${err.message}`)
+  } else if (err !== undefined) {
+    lines.push(String(err))
+  }
+  return lines.join('\n')
+}
+
+class HttpError extends Error {
+  readonly res: Response
+  constructor(res: Response) {
+    super(`HTTP ${res.status}`)
+    this.res = res
+  }
+}
+
+async function failureDetail(err: unknown): Promise<string> {
+  return err instanceof HttpError ? describeFailure(err.res, undefined) : describeFailure(null, err)
+}
+
+function ErrorDetails({ detail }: { detail: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <details className="mt-2 pointer-events-auto text-left">
+      <summary className="cursor-pointer text-xs text-white/70">詳細を表示</summary>
+      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-black/40 p-2 text-[10px] leading-snug text-white/80">
+        {detail}
+      </pre>
+      <button
+        type="button"
+        onClick={() => {
+          navigator.clipboard
+            ?.writeText(detail)
+            .then(() => setCopied(true))
+            .catch(() => {})
+        }}
+        className="mt-1 rounded-md border border-white/20 px-2 py-0.5 text-[10px] text-white/70"
+      >
+        {copied ? 'コピーしました' : 'コピー'}
+      </button>
+    </details>
+  )
+}
+
 const MAX_DIMENSION = 768
 const THUMBNAIL_DIMENSION = 160
 
@@ -42,12 +105,13 @@ export function JacketScan() {
   const scanIdRef = useRef(0)
 
   const [cameraError, setCameraError] = useState<string | null>(null)
-  const [scanError, setScanError] = useState<string | null>(null)
+  const [scanError, setScanError] = useState<ScanErrorInfo | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [quick, setQuick] = useState<QuickResult | null>(null)
   const [detail, setDetail] = useState<EnrichResult | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
   const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null)
   const [youtubeLoading, setYoutubeLoading] = useState(false)
 
@@ -127,13 +191,16 @@ export function JacketScan() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: base64, mimeType: 'image/jpeg' }),
       })
-      if (!res.ok) throw new Error(`request failed: ${res.status}`)
+      if (!res.ok) throw new HttpError(res)
       const data = (await res.json()) as QuickResult
       if (scanId !== scanIdRef.current) return
       setAnalyzing(false)
 
       if (!data.recognized) {
-        setScanError('認識できませんでした。ジャケットを少し動かして、もう一度かざしてください。')
+        setScanError({
+          message: '認識できませんでした。ジャケットを少し動かして、もう一度かざしてください。',
+          detail: '',
+        })
         return
       }
 
@@ -141,28 +208,33 @@ export function JacketScan() {
       // run the slow lookups in parallel; the artist/title card is already visible
       void searchYoutube(scanId, data.artist, data.title)
       void enrich(scanId, data)
-    } catch {
+    } catch (err) {
+      const detail = await failureDetail(err)
       if (scanId !== scanIdRef.current) return
       setAnalyzing(false)
-      setScanError('解析に失敗しました。もう一度お試しください。')
+      setScanError({ message: '解析に失敗しました。もう一度お試しください。', detail })
     }
   }
 
   async function enrich(scanId: number, base: QuickResult) {
     setDetail(null)
+    setDetailError(null)
     setDetailLoading(true)
     let data: EnrichResult | null = null
+    let errorDetail: string | null = null
     try {
       const res = await fetch(
         `/api/enrich-jacket?artist=${encodeURIComponent(base.artist)}&title=${encodeURIComponent(base.title)}`,
       )
-      if (!res.ok) throw new Error(`request failed: ${res.status}`)
+      if (!res.ok) throw new HttpError(res)
       data = (await res.json()) as EnrichResult
-    } catch {
+    } catch (err) {
       data = null
+      errorDetail = await failureDetail(err)
     }
     if (scanId !== scanIdRef.current) return
     setDetail(data)
+    setDetailError(errorDetail)
     setDetailLoading(false)
     addScanHistoryEntry({
       artist: base.artist,
@@ -197,6 +269,7 @@ export function JacketScan() {
     setQuick(null)
     setDetail(null)
     setDetailLoading(false)
+    setDetailError(null)
     setPhotoUrl(null)
     setScanError(null)
     setYoutubeVideoId(null)
@@ -260,8 +333,9 @@ export function JacketScan() {
       </div>
 
       {(cameraError || scanError) && !sheetOpen && (
-        <div className="absolute inset-x-4 top-16 rounded-xl border border-red-400/30 bg-red-500/20 px-4 py-3 text-center text-sm text-red-100">
-          {cameraError ?? scanError}
+        <div className="pointer-events-auto absolute inset-x-4 top-16 rounded-xl border border-red-400/30 bg-red-500/30 px-4 py-3 text-center text-sm text-red-50 backdrop-blur">
+          {cameraError ?? scanError?.message}
+          {!cameraError && scanError?.detail && <ErrorDetails detail={scanError.detail} />}
         </div>
       )}
 
@@ -351,7 +425,10 @@ export function JacketScan() {
           )}
 
           {!detailLoading && !detail && (
-            <p className="mb-3 text-xs text-white/40">詳細情報を取得できませんでした。</p>
+            <div className="mb-3 text-xs text-white/40">
+              詳細情報を取得できませんでした。
+              {detailError && <ErrorDetails detail={detailError} />}
+            </div>
           )}
 
           <div className="space-y-2">

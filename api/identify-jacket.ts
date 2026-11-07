@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { GoogleGenAI } from '@google/genai'
 import { quickIdentify } from '../server/identify.ts'
 
+import { errorBody } from '../server/errors.ts'
 const apiKey = process.env.GEMINI_API_KEY
 const genai = apiKey ? new GoogleGenAI({ apiKey }) : null
 
@@ -13,13 +14,13 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
   if (!genai) {
     console.error('GEMINI_API_KEY is not set')
-    response.status(500).json({ error: 'Server is not configured' })
+    response.status(500).json(errorBody('config', 'Server is not configured', 'GEMINI_API_KEY is not set'))
     return
   }
 
   const { image, mimeType } = request.body ?? {}
   if (typeof image !== 'string' || !image) {
-    response.status(400).json({ error: 'image is required' })
+    response.status(400).json(errorBody('request', 'image is required'))
     return
   }
 
@@ -28,6 +29,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
     response.status(200).json(result)
   } catch (err) {
     console.error('quickIdentify failed:', err)
-    response.status(502).json({ error: 'Gemini request failed' })
+    response.status(502).json(errorBody('gemini', 'Gemini request failed', err))
   }
 }
