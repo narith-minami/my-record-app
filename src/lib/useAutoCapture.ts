@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 
 /** Fraction of the viewport width taken by the square scan guide (keep in sync with the UI). */
-export const GUIDE_RATIO = 0.7
+export const GUIDE_RATIO = 0.85
 
 const SAMPLE_INTERVAL_MS = 250
 const SAMPLE_SIZE = 64

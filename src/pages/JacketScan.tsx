@@ -7,6 +7,7 @@ import { GUIDE_RATIO, getGuideRect, useAutoCapture } from '../lib/useAutoCapture
 
 interface QuickResult {
   recognized: boolean
+  printedText: string
   artist: string
   title: string
   confidence: 'high' | 'medium' | 'low'
@@ -18,6 +19,10 @@ interface IdentifySource {
 }
 
 interface EnrichResult {
+  artist: string
+  title: string
+  verified: boolean
+  corrected: boolean
   releaseYear: string
   label: string
   genre: string
@@ -92,7 +97,7 @@ function ErrorDetails({ detail }: { detail: string }) {
   )
 }
 
-const MAX_DIMENSION = 768
+const MAX_DIMENSION = 1024
 const THUMBNAIL_DIMENSION = 160
 
 export function JacketScan() {
@@ -103,6 +108,7 @@ export function JacketScan() {
   const thumbnailCanvasRef = useRef<HTMLCanvasElement>(null)
   const thumbnailRef = useRef<string | null>(null)
   const scanIdRef = useRef(0)
+  const [previous, setPrevious] = useState<{ artist: string; title: string } | null>(null)
 
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [scanError, setScanError] = useState<ScanErrorInfo | null>(null)
@@ -170,7 +176,7 @@ export function JacketScan() {
       thumbnailRef.current = thumbnailCanvas.toDataURL('image/jpeg', 0.7)
     }
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.75)
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
     setPhotoUrl(dataUrl)
     setAnalyzing(true)
     void identify(dataUrl.split(',')[1])
@@ -207,7 +213,7 @@ export function JacketScan() {
       setQuick(data)
       // run the slow lookups in parallel; the artist/title card is already visible
       void searchYoutube(scanId, data.artist, data.title)
-      void enrich(scanId, data)
+      void enrich(scanId, data, base64)
     } catch (err) {
       const detail = await failureDetail(err)
       if (scanId !== scanIdRef.current) return
@@ -216,16 +222,25 @@ export function JacketScan() {
     }
   }
 
-  async function enrich(scanId: number, base: QuickResult) {
+  async function enrich(scanId: number, base: QuickResult, base64: string) {
     setDetail(null)
+    setPrevious(null)
     setDetailError(null)
     setDetailLoading(true)
     let data: EnrichResult | null = null
     let errorDetail: string | null = null
     try {
-      const res = await fetch(
-        `/api/enrich-jacket?artist=${encodeURIComponent(base.artist)}&title=${encodeURIComponent(base.title)}`,
-      )
+      const res = await fetch('/api/enrich-jacket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: base64,
+          mimeType: 'image/jpeg',
+          artist: base.artist,
+          title: base.title,
+          printedText: base.printedText,
+        }),
+      })
       if (!res.ok) throw new HttpError(res)
       data = (await res.json()) as EnrichResult
     } catch (err) {
@@ -236,9 +251,18 @@ export function JacketScan() {
     setDetail(data)
     setDetailError(errorDetail)
     setDetailLoading(false)
+
+    const finalArtist = data?.artist || base.artist
+    const finalTitle = data?.title || base.title
+    if (data?.corrected) {
+      // verification found a different record: swap it in and re-run the YouTube lookup
+      setPrevious({ artist: base.artist, title: base.title })
+      setQuick({ ...base, artist: finalArtist, title: finalTitle })
+      void searchYoutube(scanId, finalArtist, finalTitle)
+    }
     addScanHistoryEntry({
-      artist: base.artist,
-      title: base.title,
+      artist: finalArtist,
+      title: finalTitle,
       bpm: data?.bpm ?? '不明',
       releaseYear: data?.releaseYear ?? '不明',
       genre: data?.genre ?? '不明',
@@ -270,6 +294,7 @@ export function JacketScan() {
     setDetail(null)
     setDetailLoading(false)
     setDetailError(null)
+    setPrevious(null)
     setPhotoUrl(null)
     setScanError(null)
     setYoutubeVideoId(null)
@@ -365,10 +390,32 @@ export function JacketScan() {
             </div>
           </div>
 
+          <div className="mb-3 text-xs">
+            {detailLoading ? (
+              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-200">候補・Web検索で確認中</span>
+            ) : detail?.verified ? (
+              <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-green-300">
+                {detail.corrected ? '検索で訂正・確認済み' : '確認済み'}
+              </span>
+            ) : (
+              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-200">未確認（候補）</span>
+            )}
+            {previous && (
+              <p className="mt-1 text-white/40">
+                読み取り候補: {previous.artist} / {previous.title}
+              </p>
+            )}
+            {!detailLoading && !detail?.verified && (
+              <p className="mt-1 text-white/50">
+                違う場合はジャケットの文字がはっきり見えるように、もう一度撮影してください。
+              </p>
+            )}
+          </div>
+
           {detailLoading && (
             <div className="mb-3 flex items-center gap-2 text-xs text-fuchsia-300">
               <Loader2 className="size-3.5 animate-spin" />
-              Web検索で詳細を確認中...
+              Web検索で確認・詳細を取得中...
             </div>
           )}
 

@@ -1,13 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { GoogleGenAI } from '@google/genai'
-import { enrichRecord } from '../server/identify.ts'
-
 import { errorBody } from '../server/errors.ts'
+import { verifyAndEnrich } from '../server/identify.ts'
+
 const apiKey = process.env.GEMINI_API_KEY
 const genai = apiKey ? new GoogleGenAI({ apiKey }) : null
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
-  if (request.method !== 'GET') {
+  if (request.method !== 'POST') {
     response.status(405).json({ error: 'Method not allowed' })
     return
   }
@@ -18,16 +18,24 @@ export default async function handler(request: VercelRequest, response: VercelRe
     return
   }
 
-  const { artist, title } = request.query
-  if (typeof artist !== 'string' || !artist || typeof title !== 'string' || !title) {
-    response.status(400).json(errorBody('request', 'artist and title are required'))
+  const { image, mimeType, artist, title, printedText } = request.body ?? {}
+  if (typeof image !== 'string' || !image || typeof artist !== 'string' || !artist || typeof title !== 'string' || !title) {
+    response.status(400).json(errorBody('request', 'image, artist and title are required'))
     return
   }
 
   try {
-    response.status(200).json(await enrichRecord(genai, artist, title))
+    response.status(200).json(
+      await verifyAndEnrich(genai, {
+        image,
+        mimeType: typeof mimeType === 'string' ? mimeType : 'image/jpeg',
+        artist,
+        title,
+        printedText: typeof printedText === 'string' ? printedText : '',
+      }),
+    )
   } catch (err) {
-    console.error('enrichRecord failed:', err)
+    console.error('verifyAndEnrich failed:', err)
     response.status(502).json(errorBody('gemini', 'Gemini request failed', err))
   }
 }
