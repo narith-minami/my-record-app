@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import { GoogleGenAI } from '@google/genai'
 import express from 'express'
-import { identifyJacket } from './identify.ts'
+import { enrichRecord, quickIdentify } from './identify.ts'
 import { searchYoutubeVideo } from './youtube.ts'
 
 const apiKey = process.env.GEMINI_API_KEY
@@ -24,10 +24,25 @@ app.post('/api/identify-jacket', async (req, res) => {
   }
 
   try {
-    const result = await identifyJacket(genai, image, typeof mimeType === 'string' ? mimeType : 'image/jpeg')
+    const result = await quickIdentify(genai, image, typeof mimeType === 'string' ? mimeType : 'image/jpeg')
     res.json(result)
   } catch (err) {
     console.error('identifyJacket failed:', err)
+    res.status(502).json({ error: 'Gemini request failed' })
+  }
+})
+
+app.get('/api/enrich-jacket', async (req, res) => {
+  const { artist, title } = req.query
+  if (typeof artist !== 'string' || !artist || typeof title !== 'string' || !title) {
+    res.status(400).json({ error: 'artist and title are required' })
+    return
+  }
+
+  try {
+    res.json(await enrichRecord(genai, artist, title))
+  } catch (err) {
+    console.error('enrichRecord failed:', err)
     res.status(502).json({ error: 'Gemini request failed' })
   }
 })

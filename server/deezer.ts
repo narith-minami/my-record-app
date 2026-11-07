@@ -1,5 +1,5 @@
 const DEEZER_API = 'https://api.deezer.com'
-const REQUEST_TIMEOUT_MS = 5000
+const REQUEST_TIMEOUT_MS = 2500
 const MAX_CANDIDATES = 5
 
 interface DeezerSearchTrack {
@@ -52,9 +52,12 @@ export async function lookupDeezerBpm(artist: string, title: string): Promise<nu
     (t) => matches(t.title, title) && matches(t.artist?.name ?? '', artist),
   )
 
-  for (const candidate of candidates) {
-    const track = await deezerGet<DeezerTrack>(`/track/${candidate.id}`)
-    if (track.bpm && track.bpm > 0) return Math.round(track.bpm)
+  // Fetch candidates in parallel; keep Deezer's own ranking order when picking a BPM.
+  const tracks = await Promise.all(
+    candidates.map((c) => deezerGet<DeezerTrack>(`/track/${c.id}`).catch(() => null)),
+  )
+  for (const track of tracks) {
+    if (track?.bpm && track.bpm > 0) return Math.round(track.bpm)
   }
   return null
 }

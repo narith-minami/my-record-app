@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { GoogleGenAI } from '@google/genai'
-import { identifyJacket } from '../server/identify.ts'
+import { quickIdentify } from '../server/identify.ts'
 
 const apiKey = process.env.GEMINI_API_KEY
 const genai = apiKey ? new GoogleGenAI({ apiKey }) : null
@@ -24,10 +24,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
   }
 
   try {
-    const result = await identifyJacket(genai, image, typeof mimeType === 'string' ? mimeType : 'image/jpeg')
+    const result = await quickIdentify(genai, image, typeof mimeType === 'string' ? mimeType : 'image/jpeg')
     response.status(200).json(result)
   } catch (err) {
-    console.error('identifyJacket failed:', err)
+    console.error('quickIdentify failed:', err)
     response.status(502).json({ error: 'Gemini request failed' })
   }
 }
