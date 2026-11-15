@@ -101,4 +101,12 @@ export interface ScanHistoryEntry {
   confidence: 'high' | 'medium' | 'low'
   thumbnail?: string
   scannedAt: string
+  /** Detail fields (absent on entries saved before the detail view existed). */
+  verified?: boolean
+  label?: string
+  producer?: string
+  bpmSource?: 'deezer' | 'search' | null
+  artistInfo?: string
+  notes?: string
+  sources?: { title: string; url: string }[]
 }
