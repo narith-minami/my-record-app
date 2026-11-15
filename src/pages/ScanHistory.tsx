@@ -1,4 +1,5 @@
-import { History, Music2 } from 'lucide-react'
+import { ChevronRight, History, Music2 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { Screen } from '../components/Screen'
 import { Card, EmptyState } from '../components/ui'
 import { useApp } from '../context/AppContext'
@@ -24,7 +25,8 @@ export function ScanHistory() {
       ) : (
         <div className="space-y-3">
           {scanHistory.map((entry) => (
-            <Card key={entry.id}>
+            <Link key={entry.id} to={`/scan-history/${entry.id}`} className="block">
+            <Card>
               <div className="flex items-center gap-3">
                 {entry.thumbnail ? (
                   <img src={entry.thumbnail} alt={`${entry.artist} - ${entry.title}`} className="size-16 shrink-0 rounded-lg object-cover" />
@@ -54,8 +56,10 @@ export function ScanHistory() {
                   </div>
                 </div>
                 <span className="shrink-0 text-[10px] text-white/30">確信度{CONFIDENCE_LABEL[entry.confidence]}</span>
+                <ChevronRight className="size-4 shrink-0 text-white/25" />
               </div>
             </Card>
+            </Link>
           ))}
         </div>
       )}

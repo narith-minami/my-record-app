@@ -13,6 +13,7 @@ import { MyDigLog } from './pages/MyDigLog'
 import { Profile } from './pages/Profile'
 import { RecordDetail } from './pages/RecordDetail'
 import { ScanHistory } from './pages/ScanHistory'
+import { ScanHistoryDetail } from './pages/ScanHistoryDetail'
 import { Wantlist } from './pages/Wantlist'
 
 function AppShell() {
@@ -42,6 +43,7 @@ function App() {
             <Route path="/challenges" element={<Challenges />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/scan-history" element={<ScanHistory />} />
+            <Route path="/scan-history/:id" element={<ScanHistoryDetail />} />
           </Route>
           <Route path="/jacket-scan" element={<JacketScan />} />
         </Routes>

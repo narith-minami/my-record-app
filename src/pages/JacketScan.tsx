@@ -242,6 +242,13 @@ export function JacketScan() {
       genre: data?.genre ?? '不明',
       confidence: base.confidence,
       thumbnail: thumbnailRef.current ?? undefined,
+      verified: data?.verified ?? false,
+      label: data?.label,
+      producer: data?.producer,
+      bpmSource: data?.bpmSource,
+      artistInfo: data?.artistInfo,
+      notes: data?.notes,
+      sources: data?.sources,
     })
   }
 
